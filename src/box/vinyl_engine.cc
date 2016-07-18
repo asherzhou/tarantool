@@ -105,27 +105,11 @@ vinyl_workers_stop(void)
 	free(worker_pool);
 }
 
-int vinyl_info(const char *name, vinyl_info_f cb, void *arg)
+int vinyl_info(const char *name, vy_info_callback_t callback, void *arg)
 {
 	VinylEngine *e = (VinylEngine *)engine_find("vinyl");
-	struct vinyl_info_cursor *cursor = vinyl_info_cursor_new(e->env);
-	const char *key;
-	const char *value;
-	if (name) {
-		while (vinyl_info_cursor_next(cursor, &key, &value) == 0) {
-			if (name && strcmp(key, name) != 0)
-				continue;
-			cb(key, value, arg);
-			return 1;
-		}
-		vinyl_info_cursor_delete(cursor);
-		return 0;
-	}
-	while (vinyl_info_cursor_next(cursor, &key, &value) == 0) {
-		cb(key, value, arg);
-	}
-	vinyl_info_cursor_delete(cursor);
-	return 0;
+	(void)name;
+	return vinyl_info_walk_throug(e->env, callback, arg);
 }
 
 VinylEngine::VinylEngine()

@@ -202,64 +202,61 @@ lbox_info_cluster(struct lua_State *L)
 	return 1;
 }
 
-typedef void (*vinyl_info_f)(const char*, const char*, void *);
+typedef int (*vy_info_callback_t)(const char *key,
+				  int value_tp,
+				  const void *value,
+				  void *arg);
 
-extern int vinyl_info(const char *name, vinyl_info_f, void *);
+extern int vinyl_info(const char *name,
+		      vy_info_callback_t callback, void *arg);
 
-static void
-lbox_vinyl_cb(const char *key, const char *value, void *arg)
+static int
+vy_info_callback(const char *key,
+		     int value_tp,
+		     const void *value,
+		     void *arg)
 {
-	struct lua_State *L;
-	L = (struct lua_State*)arg;
-	if (value == NULL || key[0] == '\0')
-		return;
-
-	/* stack: box.info.vinyl */
-	lua_pushvalue(L, -1); /* current = box.info.vinyl */
-	const char *part = key;
-	while(1) {
-		/* stack: box.info.vinyl, current */
-#ifndef TARGET_OS_DARWIN
-		const char *part_end = strchrnul(part, '.');
-#else
-		const char *part_end = strchr(part, '.');
-		if (!part_end)
-			part_end = part + strlen(part);
-#endif
-		if (*part_end == '\0') {
-			lua_pushlstring(L, part, part_end - part);
-			lua_pushstring(L, value);
-			/* stack: box.info.vinyl, current, part, value */
-			lua_settable(L, -3); /* current[part] = value */
-			/* stack: box.info.vinyl, current */
-			lua_pop(L, 1);
-			/* stack: box.info.vinyl */
-			break;
-		}
-
-		lua_pushlstring(L, part, part_end - part);
-		lua_gettable(L, -2);
-		/* stack: box.info.vinyl, current, current[part] */
-		if (!lua_istable(L, -1)) {
-			lua_pop(L, 1); /* pop current[part] */
-			lua_newtable(L);
-			lua_pushlstring(L, part, part_end - part);
-			lua_pushvalue(L, -2);
-			/* stack: box.info.vinyl, current, new, part, new */
-			lua_settable(L, -4); /* current[part] = new */
-		}
-		/* stack: box.info.vinyl, current, current[part] */
-		lua_replace(L, -2);
-		/* stack: box.info.vinyl, current */
-		part = part_end + 1;
+	struct lua_State *L = (struct lua_State *)arg;
+	if (key == NULL) {
+		//means that we go up in tree
+		lua_settable(L, -3);
+		return 0;
 	}
+	lua_pushstring(L, key);
+	if (value_tp != 0) {
+		//value is not another table
+		switch(value_tp) {
+			case 1: { //VINYL_STRING
+				lua_pushstring(L, (const char *)value);
+				break;
+			}
+			case 2: { //VINYL_STRINGPTR
+				lua_pushstring(L, *(const char **)value);
+				break;
+			}
+			case 3: { //VINYL_U32
+				lua_pushnumber(L, load_u32(value));
+				break;
+			}
+			case 4: { //VINYL_U64
+				lua_pushnumber(L, load_u64(value));
+				break;
+			}
+			default:
+				return 1;
+		}
+		lua_settable(L, -3); //insert into closest table
+	} else {
+		lua_newtable(L);
+	}
+	return 0;
 }
 
 static int
 lbox_info_vinyl_call(struct lua_State *L)
 {
 	lua_newtable(L);
-	vinyl_info(NULL, lbox_vinyl_cb, (void*)L);
+	vinyl_info(NULL, vy_info_callback, (void*)L);
 	return 1;
 }
 

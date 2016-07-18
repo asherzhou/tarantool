@@ -46,11 +46,23 @@ struct vinyl_field;
 struct vinyl_tuple;
 struct vinyl_cursor;
 struct vinyl_index;
-struct vinyl_info_cursor;
-struct vinyl_confkv;
+struct vinyl_info_link;
 struct key_def;
 struct tuple;
 struct tuple_format;
+
+enum vy_type {
+	VINYL_UNDEF = 0,
+	VINYL_STRING,
+	VINYL_STRINGPTR,
+	VINYL_U32,
+	VINYL_U64,
+};
+
+typedef int (*vy_info_callback_t)(const char *key,
+				  int value_tp,
+				  const void *value,
+				  void *arg);
 
 /*
  * Environment
@@ -62,15 +74,9 @@ vinyl_env_new(void);
 int
 vinyl_env_delete(struct vinyl_env *e);
 
-struct vinyl_info_cursor *
-vinyl_info_cursor_new(struct vinyl_env *env);
-
-void
-vinyl_info_cursor_delete(struct vinyl_info_cursor *cursor);
-
 int
-vinyl_info_cursor_next(struct vinyl_info_cursor *cursor, const char **key,
-		     const char **value);
+vinyl_info_walk_throug(struct vinyl_env *e,
+		       vy_info_callback_t callback, void *arg);
 
 void
 vinyl_bootstrap(struct vinyl_env *e);
