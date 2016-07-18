@@ -137,15 +137,20 @@ struct vy_sequence {
 	uint64_t nsn;
 };
 
-static inline void
-vy_sequence_init(struct vy_sequence *n) {
-	memset(n, 0, sizeof(*n));
-	tt_pthread_mutex_init(&n->lock, NULL);
+static inline struct vy_sequence *
+vy_sequence_new() {
+	struct vy_sequence *res = malloc(sizeof(struct vy_sequence));
+	if (res == NULL)
+		return NULL;
+	memset(res, 0, sizeof(struct vy_sequence));
+	tt_pthread_mutex_init(&res->lock, NULL);
+	return res;
 }
 
 static inline void
-vy_sequence_free(struct vy_sequence *n) {
+vy_sequence_delete(struct vy_sequence *n) {
 	tt_pthread_mutex_destroy(&n->lock);
+	free(n);
 }
 
 static inline void
@@ -629,10 +634,17 @@ struct vy_quota {
 	pthread_cond_t cond;
 };
 
-static void vy_quota_init(struct vy_quota*, int64_t);
-static void vy_quota_enable(struct vy_quota*);
-static int vy_quota_free(struct vy_quota*);
-static int vy_quota_op(struct vy_quota*, enum vy_quotaop, int64_t);
+static struct vy_quota *
+vy_quota_new(int64_t);
+
+static void
+vy_quota_enable(struct vy_quota*);
+
+static int
+vy_quota_delete(struct vy_quota*);
+
+static int
+vy_quota_op(struct vy_quota*, enum vy_quotaop, int64_t);
 
 static inline uint64_t
 vy_quota_used(struct vy_quota *q)
@@ -1125,15 +1137,19 @@ static struct vy_filterif vy_filterif_lz4 =
 	.complete = vy_filter_lz4_complete
 };
 
-static void
-vy_quota_init(struct vy_quota *q, int64_t limit)
+static struct vy_quota *
+vy_quota_new(int64_t limit)
 {
+	struct vy_quota *q = malloc(sizeof(struct vy_quota));
+	if (q == NULL)
+		return NULL;
 	q->enable = false;
 	q->wait   = 0;
 	q->limit  = limit;
 	q->used   = 0;
 	tt_pthread_mutex_init(&q->lock, NULL);
 	tt_pthread_cond_init(&q->cond, NULL);
+	return q;
 }
 
 static void
@@ -1143,10 +1159,13 @@ vy_quota_enable(struct vy_quota *q)
 }
 
 static int
-vy_quota_free(struct vy_quota *q)
+vy_quota_delete(struct vy_quota *q)
 {
+	if (q == NULL)
+		return 0;
 	tt_pthread_mutex_destroy(&q->lock);
 	tt_pthread_cond_destroy(&q->cond);
+	free(q);
 	return 0;
 }
 
@@ -1522,16 +1541,23 @@ struct vy_stat {
 	struct vy_avg    cursor_ops;
 };
 
-static inline void
-vy_stat_init(struct vy_stat *s)
+static inline struct vy_stat *
+vy_stat_new()
 {
-	memset(s, 0, sizeof(*s));
+	struct vy_stat *s = malloc(sizeof(struct vy_stat));
+	if (s == NULL)
+		return NULL;
+	memset(s, 0, sizeof(struct vy_stat));
 	tt_pthread_mutex_init(&s->lock, NULL);
+	return s;
 }
 
 static inline void
-vy_stat_free(struct vy_stat *s) {
+vy_stat_delete(struct vy_stat *s) {
+	if (s == NULL)
+		return;
 	tt_pthread_mutex_destroy(&s->lock);
+	free(s);
 }
 
 static inline void
@@ -3093,31 +3119,61 @@ struct tx_manager {
 	struct vinyl_env *env;
 };
 
-static int tx_managerinit(struct vinyl_env*);
-static int tx_managerfree(struct tx_manager*);
-static int tx_index_init(struct tx_index *, struct vinyl_index *,
-			 struct key_def *key_def);
-static int tx_index_free(struct tx_index*, struct tx_manager*);
-static struct vinyl_tx *tx_manager_find(struct tx_manager*, uint64_t);
-static void tx_begin(struct tx_manager*, struct vinyl_tx*, enum tx_type);
-static void tx_gc(struct vinyl_tx*);
-static enum tx_state tx_rollback(struct vinyl_tx*);
-static int tx_set(struct vinyl_tx*, struct tx_index*, struct vinyl_tuple*);
-static int tx_get(struct vinyl_tx*, struct tx_index*, struct vinyl_tuple*, struct vinyl_tuple**);
-static uint64_t tx_manager_min(struct tx_manager*);
-static uint64_t tx_manager_max(struct tx_manager*);
-static uint64_t tx_manager_lsn(struct tx_manager*);
+static struct tx_manager *
+tx_manager_new(struct vinyl_env*);
 
-static int tx_deadlock(struct vinyl_tx*);
+static int
+tx_manager_delete(struct tx_manager*);
+
+static int
+tx_index_init(struct tx_index *, struct vinyl_index *,
+
+			 struct key_def *key_def);
+static int
+tx_index_free(struct tx_index*, struct tx_manager*);
+
+static struct vinyl_tx *
+tx_manager_find(struct tx_manager*, uint64_t);
+
+static void
+tx_begin(struct tx_manager*, struct vinyl_tx*, enum tx_type);
+
+static void
+tx_gc(struct vinyl_tx*);
+
+static enum tx_state
+tx_rollback(struct vinyl_tx*);
+
+static int
+tx_set(struct vinyl_tx*, struct tx_index*, struct vinyl_tuple*);
+
+static int
+tx_get(struct vinyl_tx*, struct tx_index*, struct vinyl_tuple*, struct vinyl_tuple**);
+
+static uint64_t
+tx_manager_min(struct tx_manager*);
+
+static uint64_t
+tx_manager_max(struct tx_manager*);
+
+static uint64_t
+tx_manager_lsn(struct tx_manager*);
+
+
+static int
+tx_deadlock(struct vinyl_tx*);
 
 static inline int
 tx_manager_count(struct tx_manager *m) {
 	return m->count_rd + m->count_rw;
 }
 
-static int tx_managerinit(struct vinyl_env *env)
+static struct tx_manager *
+tx_manager_new(struct vinyl_env *env)
 {
-	struct tx_manager *m = env->xm;
+	struct tx_manager *m = malloc(sizeof(struct tx_manager));
+	if (m == NULL)
+		return NULL;
 	tx_tree_new(&m->tree);
 	m->count_rd = 0;
 	m->count_rw = 0;
@@ -3127,13 +3183,16 @@ static int tx_managerinit(struct vinyl_env *env)
 	m->gc  = NULL;
 	tt_pthread_mutex_init(&m->lock, NULL);
 	m->env = env;
-	return 0;
+	return m;
 }
 
 static int
-tx_managerfree(struct tx_manager *m)
+tx_manager_delete(struct tx_manager *m)
 {
+	if (m == NULL)
+		return 0;
 	tt_pthread_mutex_destroy(&m->lock);
+	free(m);
 	return 0;
 }
 
@@ -5385,19 +5444,24 @@ si_cachefollow(struct sicache *c, struct vy_run *seek)
 	return NULL;
 }
 
-static inline void
-vy_cachepool_init(struct vinyl_env *env)
+static inline struct vy_cachepool *
+vy_cachepool_new(struct vinyl_env *env)
 {
-	struct vy_cachepool *p = env->cachepool;
-	p->head = NULL;
-	p->n    = 0;
-	p->env    = env;
-	tt_pthread_mutex_init(&p->mutex, NULL);
+	struct vy_cachepool *cachepool = malloc(sizeof(struct vy_cachepool));
+	if (cachepool == NULL)
+		return NULL;
+	cachepool->head = NULL;
+	cachepool->n = 0;
+	cachepool->env = env;
+	tt_pthread_mutex_init(&cachepool->mutex, NULL);
+	return cachepool;
 }
 
 static inline void
-vy_cachepool_free(struct vy_cachepool *p)
+vy_cachepool_delete(struct vy_cachepool *p)
 {
+	if (p == NULL)
+		return;
 	struct sicache *next;
 	struct sicache *c = p->head;
 	while (c) {
@@ -5407,6 +5471,7 @@ vy_cachepool_free(struct vy_cachepool *p)
 		c = next;
 	}
 	tt_pthread_mutex_destroy(&p->mutex);
+	free(p);
 }
 
 static inline struct sicache*
@@ -8254,9 +8319,14 @@ struct scheduler {
 	struct vinyl_env    *env;
 };
 
-static int sc_init(struct vinyl_env*);
-static int sc_add(struct scheduler*, struct vinyl_index*);
-static int sc_del(struct scheduler*, struct vinyl_index*, int);
+static struct scheduler *
+scheduler_new(struct vinyl_env*);
+static void
+scheduler_delete(struct scheduler *);
+static int
+sc_add(struct scheduler*, struct vinyl_index*);
+static int
+sc_del(struct scheduler*, struct vinyl_index*, int);
 
 static inline void
 sc_start(struct scheduler *s, int task)
@@ -8347,10 +8417,12 @@ static int sc_ctl_checkpoint(struct scheduler*);
 static int sc_ctl_shutdown(struct scheduler*, struct vinyl_index*);
 
 
-static int
-sc_init(struct vinyl_env *env)
+static struct scheduler *
+scheduler_new(struct vinyl_env *env)
 {
-	struct scheduler *s = env->scheduler;
+	struct scheduler *s = malloc(sizeof(struct scheduler));
+	if (s == NULL)
+		return NULL;
 	uint64_t now = clock_monotonic64();
 	tt_pthread_mutex_init(&s->lock, NULL);
 	s->checkpoint_lsn           = 0;
@@ -8368,7 +8440,13 @@ sc_init(struct vinyl_env *env)
 	s->env                      = env;
 	rlist_create(&s->shutdown);
 	s->shutdown_pending = 0;
-	return 0;
+	return s;
+}
+
+static void
+scheduler_delete(struct scheduler *s)
+{
+	free(s);
 }
 
 static int sc_add(struct scheduler *s, struct vinyl_index *index)
@@ -8907,17 +8985,21 @@ struct vy_conf {
 	uint64_t memory_limit;
 };
 
-static int vy_conf_init(struct vy_conf *c)
+static struct vy_conf *
+vy_conf_new()
 {
-	c->path = strdup(cfg_gets("vinyl_dir"));
-	if (c->path == NULL) {
+	struct vy_conf *conf = malloc(sizeof(struct vy_conf));
+	if (conf == NULL)
+		return NULL;
+	conf->path = strdup(cfg_gets("vinyl_dir"));
+	if (conf->path == NULL) {
 		vy_oom();
-		return -1;
+		return NULL;
 	}
 	/* Ensure vinyl data directory exists. */
-	if (sr_checkdir(c->path))
-		return -1;
-	c->memory_limit = cfg_getd("vinyl.memory_limit")*1024*1024*1024;
+	if (sr_checkdir(conf->path))
+		return NULL;
+	conf->memory_limit = cfg_getd("vinyl.memory_limit")*1024*1024*1024;
 	struct srzone def = {
 		.enable            = 1,
 		.mode              = 3, /* branch + compact */
@@ -8950,15 +9032,15 @@ static int vy_conf_init(struct vy_conf *c)
 		.lru_prio          = 0,
 		.lru_period        = 0
 	};
-	sr_zonemap_set(&c->zones, 0, &def);
-	sr_zonemap_set(&c->zones, 80, &redzone);
+	sr_zonemap_set(&conf->zones, 0, &def);
+	sr_zonemap_set(&conf->zones, 80, &redzone);
 	/* configure zone = 0 */
-	struct srzone *z = &c->zones.zones[0];
+	struct srzone *z = &conf->zones.zones[0];
 	assert(z->enable);
 	z->compact_wm = cfg_geti("vinyl.compact_wm");
 	if (z->compact_wm <= 1) {
 		vy_error("bad %d.compact_wm value", 0);
-		return -1;
+		return NULL;
 	}
 	z->branch_prio = cfg_geti("vinyl.branch_prio");
 	z->branch_age = cfg_geti("vinyl.branch_age");
@@ -8967,20 +9049,23 @@ static int vy_conf_init(struct vy_conf *c)
 
 	/* convert periodic times from sec to usec */
 	for (int i = 0; i < 11; i++) {
-		z = &c->zones.zones[i];
+		z = &conf->zones.zones[i];
 		z->branch_age_period_us = z->branch_age_period * 1000000;
 		z->gc_period_us         = z->gc_period * 1000000;
 		z->lru_period_us        = z->lru_period * 1000000;
 	}
-	return 0;
+	return conf;
 }
 
-static void vy_conf_free(struct vy_conf *c)
+static void vy_conf_delete(struct vy_conf *c)
 {
+	if (c == NULL)
+		return;
 	if (c->path) {
 		free(c->path);
 		c->path = NULL;
 	}
+	free(c);
 }
 
 static inline struct srzone *
@@ -9056,20 +9141,14 @@ vinyl_env_delete(struct vinyl_env *e)
 		if (unlikely(rc == -1))
 			rcret = -1;
 	}
-	tx_managerfree(e->xm);
-	vy_cachepool_free(e->cachepool);
-	vy_conf_free(e->conf);
-	vy_quota_free(e->quota);
-	vy_stat_free(e->stat);
-	vy_sequence_free(e->seq);
+	tx_manager_delete(e->xm);
+	vy_cachepool_delete(e->cachepool);
+	vy_conf_delete(e->conf);
+	vy_quota_delete(e->quota);
+	vy_stat_delete(e->stat);
+	vy_sequence_delete(e->seq);
+	scheduler_delete(e->scheduler);
 	mempool_destroy(&e->read_task_pool);
-	free(e->seq);
-	free(e->conf);
-	free(e->quota);
-	free(e->cachepool);
-	free(e->xm);
-	free(e->scheduler);
-	free(e->stat);
 	free(e);
 	return rcret;
 }
@@ -10781,36 +10860,44 @@ vinyl_env_new(void)
 	memset(e, 0, sizeof(*e));
 	rlist_create(&e->indexes);
 	e->status = VINYL_OFFLINE;
-	e->seq = malloc(sizeof(struct vy_sequence));
-	e->conf = malloc(sizeof(struct vy_conf));
-	e->quota = malloc(sizeof(struct vy_quota));
-	e->cachepool = malloc(sizeof(struct vy_cachepool));
-	e->xm = malloc(sizeof(struct tx_manager));
-	e->scheduler = malloc(sizeof(struct scheduler));
-	e->stat = malloc(sizeof(struct vy_stat));
-
-	if (vy_conf_init(e->conf))
-		goto error;
-	/* set memory quota (disable during recovery) */
-	vy_quota_init(e->quota, e->conf->memory_limit);
-	vy_sequence_init(e->seq);
-	vy_stat_init(e->stat);
-	tx_managerinit(e);
-	vy_cachepool_init(e);
-	sc_init(e);
+	e->seq = vy_sequence_new();
+	if (e->seq == NULL)
+		goto error_1;
+	e->conf = vy_conf_new();
+	if (e->conf == NULL)
+		goto error_2;
+	e->quota = vy_quota_new(e->conf->memory_limit);
+	if (e->quota == NULL)
+		goto error_3;
+	e->cachepool = vy_cachepool_new(e);
+	if (e->cachepool == NULL)
+		goto error_4;
+	e->xm = tx_manager_new(e);
+	if (e->xm == NULL)
+		goto error_5;
+	e->scheduler = scheduler_new(e);
+	if (e->scheduler == NULL)
+		goto error_6;
+	e->stat = vy_stat_new();
+	if (e->stat == NULL)
+		goto error_7;
 
 	mempool_create(&e->read_task_pool, cord_slab_cache(),
 	               sizeof(struct vy_read_task));
 	return e;
-error:
-	vy_conf_free(e->conf);
-	free(e->seq);
-	free(e->conf);
-	free(e->quota);
-	free(e->cachepool);
-	free(e->xm);
-	free(e->scheduler);
-	free(e->stat);
+error_7:
+	scheduler_delete(e->scheduler);
+error_6:
+	tx_manager_delete(e->xm);
+error_5:
+	vy_cachepool_delete(e->cachepool);
+error_4:
+	vy_quota_delete(e->quota);
+error_3:
+	vy_conf_delete(e->conf);
+error_2:
+	vy_sequence_delete(e->seq);
+error_1:
 	free(e);
 	return NULL;
 }
